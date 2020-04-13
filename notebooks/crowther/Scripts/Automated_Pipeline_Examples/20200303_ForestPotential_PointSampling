@@ -1,0 +1,48 @@
+// Imports section for Git
+var composite = ee.Image("users/devinrouth/ETH_Composites/CrowtherLab_Composite_30ArcSec"),
+	resolveBiomes = ee.Image("users/devinrouth/Resolve_Biomes_30ArcSec");
+
+// Collect all of the points to be used
+var zeroHumModPoints = ee.FeatureCollection('users/devinrouth/ETH_Global_Forest_Cover/20200220_CollectEarthPoints_wHumanModification')
+	.filterMetadata('HumanMod', 'less_than', 0.01);
+var cepInWildNatRes = ee.FeatureCollection("users/devinrouth/ETH_Global_Forest_Cover/CollectEarthPoints_inWDPA_WildNatRes");
+var combinedFC = zeroHumModPoints.merge(cepInWildNatRes);
+print(combinedFC.size());
+
+// Add the latitude and longitude to each point as a property then filter away duplicate locations
+var fcToDistinct = combinedFC.map(function(f) {
+	var lat = ee.Number(ee.List(f.geometry().coordinates()).get(1));
+	var long = ee.Number(ee.List(f.geometry().coordinates()).get(0));
+	return f.set('Lat', lat, 'Long', long);
+});
+var finalFCToExport = fcToDistinct.distinct(['Lat', 'Long']).select(['treecover', 'shrubcover', 'Lat', 'Long']);
+print(finalFCToExport.limit(10));
+
+// Sample the points to get all of the covariates of interest, including the Resolve biomes
+var bandsToUse = ["CHELSA_Annual_Mean_Temperature",
+	"CHELSA_Annual_Precipitation",
+	"EarthEnvTopoMed_Elevation",
+	"SG_Depth_to_bedrock",
+	"CHELSA_Precipitation_Seasonality",
+	"CHELSA_Mean_Temperature_of_Warmest_Quarter",
+	"CHELSA_Precipitation_of_Driest_Quarter",
+	"SG_Sand_Content_000cm",
+	"SG_Sand_Content_005cm",
+	"EarthEnvTopoMed_Northness",
+	"EarthEnvTopoMed_Eastness"
+];
+var compositeToClassify = composite.select(bandsToUse);
+var compositeToSample = compositeToClassify.addBands(resolveBiomes.toInt());
+
+var sampledPointsToExport = compositeToSample.reduceRegions({
+	collection: finalFCToExport,
+	reducer: ee.Reducer.first(),
+	tileScale: 16
+});
+// print(sampledPointsToExport);
+
+Export.table.toDrive({
+	collection: sampledPointsToExport,
+	description: '20200303_ForestPotential_Samples',
+	folder: '20200303_ForestPotential_Samples'
+});
